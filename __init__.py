@@ -1,12 +1,3 @@
-#
-# Description:  Binary Ninja plugin to decompile all the codebase in Pseudo C
-# and dump it into a given directory, though File -> Export would also work for some
-# cases instead of using this plugin, depending on what you are trying to achieve.
-#
-# Author: Asher Davila (@asher_davila)
-# https://github.com/AsherDLL/PCDump-bn
-#
-
 import calendar
 import ntpath
 import os
@@ -102,26 +93,38 @@ class PseudoCDump(BackgroundTaskThread):
         return new_directory
 
     def run(self) -> None:
-        """Method representing the thread's activity. It invokes the callable
-        object passed to the object's constructor as the target argument.
-        Additionally, writes the content of each function into a <function_name>.c
-        file in the provided destination folder.
-        """
         self.destination_path = self.__create_directory()
-        log_info(f'Number of functions to dump: {len(self.bv.functions)}')
+        log_info(f"Dumping structs/types to {self.destination_path}")
+        log_info(f'Number of structs/types to dump: {len(self.bv.types)}')
+
+        # Open generic file for all the structs
+        destination = os.path.join(
+            self.destination_path,
+            normalize_destination_file('structs', "h"))
+        with open(destination, 'wb') as file:
+            for name, struct_or_type in self.bv.types:
+                log_info(f'Dumping struct {name}')
+                #struct_code = get_struct_pseudo_c(self.bv, struct_or_type)
+                #file.write(bytes(struct_code, 'utf-8'))
+
+        log_info(f'Number of components to dump: {len(self.bv.root_component.components)}')
         count = 1
-        for function in self.bv.functions:
-            function_name = self.__get_function_name(function)
-            log_info(f'Dumping function {function_name}')
-            self.progress = "Dumping Pseudo C: %d/%d" % (
-                count, len(self.bv.functions))
-            force_analysis(self.bv, function)
-            pcode = get_pseudo_c(self.bv, function)
+
+        for component in self.bv.root_component.components:
+            component_name = component.name
+            log_info(f'Dumping component {component_name}')
+
+            # Open file with the same name as the component
             destination = os.path.join(
                 self.destination_path,
-                normalize_destination_file(function_name, self.FILE_SUFFIX))
+                normalize_destination_file(component_name, self.FILE_SUFFIX))
             with open(destination, 'wb') as file:
-                file.write(bytes(pcode, 'utf-8'))
+
+                # Handle functions
+                for function in component.functions:
+                    function_code = get_pseudo_c(self.bv, function)
+                    file.write(bytes(function_code, 'utf-8'))
+
             count += 1
         log_alert(f'Done \nFiles saved in {self.destination_path}')
 
@@ -169,6 +172,34 @@ def force_analysis(bv: BinaryView, function: Function) -> None:
         function.analysis_skip_override = (
             FunctionAnalysisSkipOverride.NeverSkipFunctionAnalysis)
         bv.update_analysis_and_wait()
+
+
+
+
+def get_struct_pseudo_c(bv: BinaryView, struct) -> str:
+    """
+    Generates Pseudo C code for a given struct.
+
+    Args:
+        bv: A Binary Ninja BinaryView instance which is a view on binary data,
+            and presents a queryable interface of a binary file.
+        struct: A Binary Ninja Structure instance representing the struct.
+
+    Returns:
+        A string containing the Pseudo C code for the struct.
+    """
+    struct_code = []
+    struct_code.append(f"struct {struct.name} {{\n")
+
+    for member in struct.members:
+        member_type = member.type
+        member_name = member.name
+        struct_code.append(f"    {member_type} {member_name};\n")
+
+    struct_code.append("};\n\n")
+
+    return "".join(struct_code)
+
 
 
 def get_pseudo_c(bv: BinaryView, function: Function) -> str:
